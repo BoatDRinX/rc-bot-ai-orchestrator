@@ -1,0 +1,202 @@
+🧠 SYSTEM BUILD REQUEST — RC-BOT Next Phase AI Integration
+We have built a full-stack Flask-based orchestrator system with persistent memory, file editing, and execution capabilities via OpenAI API. It works, but only partially fulfills our goal.
+
+✅ Current Capabilities
+System Status: Fully operational, persistent backend
+
+✅ Flask orchestrator w/ /run, /edit_file, and /memory/* endpoints
+
+✅ Client-side forwarding tool (interactive & headless) using orchestrator_client.py
+
+✅ SQLite-backed long-term memory engine: logs all ops, session history, file relationships, milestones
+
+✅ Persistent shell + code editing via systemd-managed services
+
+✅ LLM via OpenAI (no local model active)
+
+✅ Autonomously handles tagged commands from ChatGPT or file-based queues
+
+✅ Project: RC-BOT 10-Step Trading System (scanner → executor → backtest → live)
+
+📂 Key Paths:
+
+Orchestrator: /home/rc_bot_workspace/ai_orchestrator/
+
+Scripts: /home/rc_bot_workspace/scripts/
+
+Memory DB: /home/rc_bot_workspace/memory/project_memory.db
+
+API Endpoint: http://api.rcbot.org
+
+❌ Current Limitations
+❌ Cannot type directly into browser UI and trigger server actions automatically
+
+❌ No automatic context injection into ChatGPT (manual)
+
+❌ No continuous loop: still requires copy/paste or CLI push
+
+❌ No visual GUI layer for easy human-AI interaction
+
+❌ No persistent desktop session context across new windows (requires prompt reload)
+
+🧭 Objectives (Requested Build Scope)
+Build a browser-accessible local or remote GUI where user types like in ChatGPT, but all processing, memory, and execution happens automatically.
+
+🔧 Requested System Enhancements
+1. Local Web GUI
+📍 Simple web interface (React or HTML+JS) hosted on http://localhost:PORT or api.rcbot.org/chat
+
+🧠 Input box to type natural instructions
+
+⛓️ Auto-forwards to orchestrator_client.py or Flask endpoints
+
+🌐 Prefer browser extension or Chromium-based browser that supports background script injection (recommendations welcome)
+
+2. Autonomous Response Handling
+🔁 On receiving server output (success, error, log), AI should:
+
+auto-handle errors by re-editing or retrying with adjusted parameters
+
+re-query if context insufficient
+
+stop only when task is complete or requires human decision
+
+3. Persistent Long-Term Memory
+💾 All important context (file versions, milestones, insights) logged into project_memory.db
+
+🔁 Reload summary at new session start using /memory/summary/<session_id>
+
+🧠 Inject top 3 file focuses, errors, patterns, milestones into ChatGPT context
+
+4. Session Token Auto-Rotation
+🔄 After 100,000 tokens in ChatGPT thread, automatically:
+
+generate context summary
+
+save to DB
+
+start new thread with latest summary injected as startup message
+
+5. Seamless AI-AI Loop
+💬 ChatGPT emits tags
+
+🧠 Forwarding agent (headless or GUI) captures and posts
+
+⚙️ Flask API performs and logs result
+
+🔄 Loop continues until human stops it or result is achieved
+
+📬 Final Deliverable
+Please provide:
+
+Suggested build stack (frameworks/libraries for the frontend + backend integration)
+
+Concrete steps to implement local browser UI with real-time agent response
+
+Optional browser extension/plugin to bind a ChatGPT-like UI to http://localhost:5000
+
+Support for real-time input/output syncing (e.g. via websockets or polling)
+
+Any optional optimizations (e.g., replacing file polling with Redis queue, adding vector search, etc.)
+
+🔄 Current Project Scope: RC-BOT Trading System
+Your enhancements should integrate seamlessly into the following architecture:
+
+Phase 1: Stock Scanner + Signal Executor + Backtest Engine
+
+Phase 2: Paper Trading → Live Capital
+
+Memory logs all code, trade logic, and system improvements
+
+All steps are tracked via milestones in the memory DB
+
+🧠 Universal Architecture Enhancements (from Proposal C)
+📡 Real-time Chat GUI
+React + Tailwind frontend
+
+Socket.IO connection to Flask backend
+
+Displays logs, tokens, elapsed time, and system status
+
+🧠 Persistent Memory
+SQLite (project_memory.db)
+
+Logs:
+
+Session metadata
+
+File edits
+
+Execution results
+
+Milestones
+
+📚 Vector Memory Integration (ChromaDB)
+Store text chunks with embeddings
+
+Retrieve semantically similar entries for prompt injection
+
+Used by both LangGraph agent and GUI
+
+📝 [[DOC]] Auto-Logging
+Captures:
+
+File path
+
+Summary of change
+
+Timestamp
+
+Trigger source (AI/User)
+
+Logged to documentation_updates in memory DB
+
+📊 Token Counter + Timer
+UI widget showing:
+
+Tokens used (progress to 100k)
+
+Elapsed time for current task
+
+Optional alerts on nearing limits
+
+🔁 Context Auto-Rotation
+When session token count > 100k:
+
+Generates context summary via OpenAI
+
+Logs it to memory
+
+Starts new thread with pre-injected context
+
+🔌 Agent Compatibility Layer
+Tools exposed via OpenAPI or JSON spec:
+
+/run, /edit_file, /memory, /chromadb/search
+
+Allows agent frameworks like LangGraph to:
+
+Read/write memory
+
+Edit files
+
+Retry based on execution logs
+
+🛠 Full DevOps Pipeline
+Systemd-managed services:
+
+rcbot-websocket (Flask backend)
+
+rcbot-frontend-dev or build output (GUI)
+
+redis-server (optional memory/cache layer)
+
+Nginx:
+
+Proxies api.rcbot.org to Flask + React
+
+Monitoring:
+
+health_check.py for Redis, Flask, DB
+
+Cron job auto-restarts key services

@@ -1,0 +1,643 @@
+RC-BOT AI Orchestrator – System Architecture & Project Map
+
+---
+
+Architecture Overview (Current State)
+
++---------------------------------------------------+
+\|                \[OpenAI ChatGPT]                   |
+\|   (You type instructions here, e.g. ChatGPT web)  |
++------------------------+--------------------------+
+|
+\[Special tags/commands, e.g. \[\[RUN]], \[\[EDIT]]]
+|
++------------------------v--------------------------+
+\|                \[Forwarding Tool / CLI]            |
+\|  (Python script or client on server parses tags    |
+\|   and calls Flask API endpoints)                  |
++------------------------+--------------------------+
+|
+(HTTP requests to Flask API, e.g. /run, /edit\_file)
+|
++------------------------v--------------------------+
+\|         \[Flask API Orchestrator Backend]          |
+\|           (Runs on RC-BOT server)                 |
+\|   Folder: /home/rc\_bot\_workspace/ai\_orchestrator  |
+\|   - app.py (Flask entrypoint)                     |
+\|   - routes.py (API endpoints)                     |
+\|   - file\_editor.py (read/write code files)        |
+\|   - executor.py (shell command runner)            |
+\|   - llm\_client.py (stub for LLM calls)            |
+\|   - config.py (future settings)                   |
++------------------------+--------------------------+
+|
+/edit\_file, /run, etc. endpoints interact with FS/shell
+|
+\[Scripts edited/run here]          \[LLM for edits]
+/home/rc\_bot\_workspace/scripts     (OpenAI API only)
+|
+(output/files/logs/results)
+
+---
+
+Project Directory Structure
+
+/home/rc\_bot\_workspace/
+├── ai\_orchestrator/
+│   ├── app.py           # Flask app entry
+│   ├── routes.py        # Orchestrator endpoints
+│   ├── file\_editor.py   # File read/write logic
+│   ├── executor.py      # Shell command runner
+│   ├── llm\_client.py    # (Now uses OpenAI only)
+│   └── config.py        # Placeholder
+├── scripts/
+│   ├── orchestrator\_client.py  # CLI test client
+│   ├── ... other scripts ...
+├── models/
+│   └── (old llama/WizardCoder files; NOT IN USE)
+├── (other project files...)
+
+---
+
+Key File Locations
+
+* Environment File (.env):
+  /home/rcbotuser/rc\_bot\_workspace/.env
+  (Contains your OpenAI API Key, loaded with python-dotenv.)
+
+* Flask Orchestrator Directory:
+  /home/rc\_bot\_workspace/ai\_orchestrator/
+  (All backend logic and endpoints.)
+
+* Script Directory:
+  /home/rc\_bot\_workspace/scripts/
+  (All Python files you want to edit/run via API.)
+
+* Client CLI:
+  /home/rc\_bot\_workspace/scripts/orchestrator\_client.py
+  (Used to test and forward \[\[RUN]]/\[\[EDIT]] tags to the backend.)
+
+---
+
+LLM Integration (Current Version)
+
+* LLM in Use:
+  OpenAI API only (openai Python package, using key from .env)
+* LLM Integration Location:
+  llm\_client.py (future: could extend to local LLM, but now only OpenAI)
+* No local Llama/WizardCoder currently active.
+  (You tried, but reverted to OpenAI for reliability and speed.)
+
+---
+
+Flask Server – How It's Run
+
+* Location:
+  /home/rc\_bot\_workspace/ai\_orchestrator/app.py
+* How to Start (Manual):
+  cd /home/rc\_bot\_workspace/ai\_orchestrator
+  python3 app.py
+* Port:
+  Runs on 0.0.0.0:5000 (accessible from anywhere, unless firewalled)
+* No gunicorn in current version for orchestrator.
+  (Gunicorn previously used for a different Flask app, now shut down.)
+
+---
+
+Current Workflow – End to End
+
+1. Type instructions to ChatGPT
+   (on chat.openai.com, i.e., here)
+2. ChatGPT emits “tags” for actions:
+   e.g.,
+   \[\[EDIT\_FILE\:file=gap\_scanner.py; instruction=Add float < 100M filter]]
+3. You (or a client tool) forward tags to Flask API
+   (using orchestrator\_client.py or other script)
+4. Flask API calls the right backend module:
+
+   * /run → runs a shell command
+   * /edit\_file → edits a file (calls llm\_client.py with OpenAI LLM)
+5. Results are returned, reviewed, and next step is decided
+
+---
+
+AI Orchestrator – Visual Diagram
+
+\[ChatGPT (you here)]
+|
+\|  (tagged instruction)
+v
+\[Forwarding Tool / CLI]
+|
+\|  (HTTP POST)
+v
+\[Flask Orchestrator API] -- \[Script Dir] --- \[OpenAI LLM via API]
+\|                       |
+(edit/run scripts)      (edits code)
+\|                       |
++-------(returns output/results)------+
+
+---
+
+Key Points to Remember
+
+* No Llama/WizardCoder or other local LLMs are currently running or required.
+* OpenAI API is the sole code-editing LLM.
+* All edits and executions happen in /home/rc\_bot\_workspace/scripts/.
+* .env file with your OpenAI key is at /home/rcbotuser/rc\_bot\_workspace/.env.
+* Flask is run via python3 app.py in /home/rc\_bot\_workspace/ai\_orchestrator/.
+* You communicate and manage everything via this ChatGPT interface plus your forwarding tool (CLI or manual).
+
+---
+
+Here’s a concise list of the key changes we made over the last few hours—add these to your system architecture documentation:
+
+file_editor.py
+
+Expanded edit_file() signature to
+
+python
+Copy
+Edit
+def edit_file(path, new_code=None, instruction=None, read_only=False):
+Strips out any existing “# Edit requested” comments.
+
+If read_only=True, returns the raw file contents.
+
+If new_code is provided, fully overwrites the file.
+
+If instruction starts with "prepend", parses everything after the first colon and inserts those lines at the top.
+
+routes.py (Flask endpoints)
+
+Removed the in-between LLM step on /edit_file.
+
+New /edit_file handler calls edit_file(path, instruction) directly and returns success/no-op JSON.
+
+/run remains unchanged (calls executor.run_shell_command()).
+
+rcbot-api.service (systemd unit)
+
+ExecStart changed to:
+
+ruby
+Copy
+Edit
+ExecStart=/usr/bin/python3 /home/rc_bot_workspace/ai_orchestrator/app.py
+(no more Gunicorn).
+
+Uses EnvironmentFile=/home/rcbotuser/rc_bot_workspace/.env.
+
+Now auto-restarts on failure and logs via journalctl -u rcbot-api.service -f.
+
+orchestrator_client.py (Forwarding Tool CLI)
+
+A standalone Python script that:
+
+Reads ChatGPT output from stdin.
+
+Regex-parses [[RUN]]{…} and [[EDIT_FILE]]{…} blocks.
+
+POSTs to /run or /edit_file as appropriate.
+
+Polls /job-status/:job_id (for RUN) until completion.
+
+Prints the final output or edit confirmation to stdout.
+
+By incorporating these into your architecture map, you’ll capture the latest end-to-end flow:
+
+lua
+Copy
+Edit
+ChatGPT UI
+   ↓  (output with [[RUN]] / [[EDIT_FILE]] tags)
+orchestrator_client.py
+   ↓  (HTTP POST → poll)
+Flask Orchestrator (/run, /edit_file)
+   ↙                  ↘
+executor.py         file_editor.py
+   ↓                    ↓
+shell scripts       code files
+—where /edit_file now applies local edits directly (no LLM), and the whole service runs under systemd.
+
+Recent changes version history 1.0
+
+1. Local-only edit_file logic (no LLM)
+file_editor.py signature extended to
+
+python
+Copy
+Edit
+def edit_file(path, new_code=None, instruction=None, read_only=False):
+Strips out any existing # Edit requested comments on every edit.
+
+Supports three modes:
+
+Read-only (read_only=True) returns raw file contents.
+
+Full overwrite (new_code=…) writes exactly that string.
+
+Prepend (instruction starts with "prepend") splits on the first colon and inserts those lines at the top.
+
+2. Simplified /edit_file endpoint
+Removed the LLM patch‐generation step from routes.py.
+
+New handler calls edit_file(path, instruction=…) directly and returns
+
+json
+Copy
+Edit
+{ "status":"success", "message":"Updated <path>" }
+or a 400 {"status":"no-op","message":"No changes made"} if nothing changed.
+
+3. Enhanced executor.py to accept cwd
+Replaced old run_shell_command(cmd) with:
+
+python
+Copy
+Edit
+def run_shell_command(command, cwd=None):
+    # runs via subprocess.run(..., cwd=cwd, stdout+stderr captured)
+Allows the /run endpoint to execute in an arbitrary working directory.
+
+4. Updated /run endpoint
+In routes.py, @app.route('/run') now reads both "command" and optional "cwd" from the POST JSON and calls run_shell_command(command, cwd=cwd).
+
+5. Single-file, non-interactive Forwarding Tool
+Created orchestrator_client.py that:
+
+Reads ChatGPT’s output from stdin.
+
+Regex-parses [[RUN]]{…} and [[EDIT_FILE]]{…} blocks.
+
+POSTs to /run or /edit_file.
+
+Prints the direct JSON response (no interactive menu, no polling).
+
+6. Closed-loop workflow documentation
+Documented the exact 4-step loop:
+
+ChatGPT UI emits [[RUN]]/[[EDIT_FILE]].
+
+orchestrator_client.py reads that, forwards to Flask.
+
+Flask Orchestrator runs or edits, returns JSON.
+
+Client prints outputs/diffs, which you paste back into ChatGPT.
+
+7. Systemd service tweaks
+rcbot-api.service now uses:
+
+ini
+Copy
+Edit
+ExecStart=/usr/bin/python3 /home/rc_bot_workspace/ai_orchestrator/app.py
+Restart=on-failure
+EnvironmentFile=/home/rcbotuser/rc_bot_workspace/.env
+Completely replaced the old Gunicorn setup—now using Flask’s built-in server under systemd.
+
+8. Example “hello_world.py” evolution
+Started as simple print(...).
+
+Added prepend logic via /edit_file.
+
+Switched to timestamp + print.
+
+Converted to file-logging with version marker.
+
+Fixed escape sequences and cleaned up log.txt (with its own version marker).
+
+Updated System Architecture (Post-Step 8)
+
+Orchestrator Client (Interactive + Headless)
+
+orchestrator_client.py now supports two modes:
+
+Interactive (chat_loop): prompts use Client> and automatically forwards any [[RUN]] or [[EDIT_FILE]] tags in both user input and AI responses.
+
+Headless (--headless --queue-file): watches a JSONL queue (prompts.jsonl), processes new prompts every 2 s, forwards tags, and clears the queue.
+
+Explicit load_dotenv("/home/rcbotuser/rc_bot_workspace/.env"), regex for tag detection, structured logging, and forwarding confirmations printed.
+
+Versioned at 1.0.0 with clear code organization.
+
+file_editor.py Enhancements
+
+Prepend Logic Priority: checks instruction.startswith('prepend') before new_code overwrite.
+
+Robust Parsing: handles instruction:"prepend: …" syntax, strips old markers, reads existing content, writes back merged lines.
+
+Version Marker: bottom of file now indicates # Version: 1.0.0.
+
+Flask Routes (routes.py)
+
+/run: unchanged, executes shell via executor.run_shell_command.
+
+/edit_file: fixed parameter mapping:
+
+uses data.get('path'), data.get('new_code'), data.get('instruction'), data.get('read_only', False).
+
+wrapped in try/except with logging at entry, success, and error (with full traceback).
+
+API Service (rcbot-api.service)
+
+Continues using Flask built-in server under systemd.
+
+EnvironmentFile=/home/rcbotuser/rc_bot_workspace/.env for auth tokens.
+
+Logging enabled for errors and operations.
+
+Orchestrator Client Service (orchestrator-client.service)
+
+New systemd unit to run orchestrator_client.py --headless at boot.
+
+Polls /home/rc_bot_workspace/ai_orchestrator/prompts.jsonl, with Restart=on-failure.
+
+Permissions & Deployment
+
+chmod -R a+rw /home/rc_bot_workspace/scripts/ ensures /edit_file can write.
+
+Centralized .env used by both services.
+
+Workflow Demonstrations
+
+Automated [[RUN]]: daemon picked up ls -la prompt, posted to /run, logged full directory listing.
+
+Automated [[EDIT_FILE]]: prepend tests, error handling, and final successful modifications verified on disk.
+
+— End of Updates —
+
+---  
+
+🧠 Persistent Memory Layer (Phase 2 Update – May 2025)
+
+New capability: RC-BOT can now retain project context, messages, and file operation logs across sessions using a persistent SQLite-backed memory system.
+
+📁 Database Setup
+- File: `/home/rc_bot_workspace/memory/project_memory.db`
+- Schema includes: `sessions`, `messages`, `file_operations`, `project_context`, `milestones`
+- Managed via: `memory_manager.py` in `/home/rc_bot_workspace/ai_orchestrator/`
+
+🧠 MemoryManager Class
+- Handles creation, logging, retrieval of memory items
+- Supports structured session summaries
+- Used by Flask directly and (later) by Client Guy via tagging
+
+🛠️ Flask API Enhancements (routes.py)
+- Added endpoints:
+  - `POST /memory/session` – create session
+  - `POST /memory/context/<session_id>` – store context key
+  - `GET /memory/context/<session_id>/<key>` – retrieve context key
+  - `GET /memory/summary/<session_id>` – return full session summary
+- No changes required to `app.py` (continues using systemd + built-in server)
+
+🔒 File Permissions
+- `project_memory.db` is writable by Flask (owned by `rcbotuser`)
+- Directory: `/home/rc_bot_workspace/memory/`
+- Use `chmod -R 777` or `chown -R rcbotuser:rcbotuser` if 500 errors return
+
+🧪 Testing Success
+- All endpoints verified working via `curl` from Mobax Shell Dude
+- Sample session, context key, and full summary returned successfully
+
+🎯 Next Phases (optional)
+- Instrument `/run` and `/edit_file` to auto-log into memory
+- Automate context injection using Client Guy
+- Add Chroma vector search or Git integration (see Proposal A)
+
+---
+
+
+🔄 Orchestrator Command Flow (as of May 22, 2025)
+Client Guy is now fully activated and executing [[RUN]] and [[EDIT_FILE]] tags autonomously.
+
+The headless orchestrator_client.py watches prompts.jsonl and:
+
+Parses tagged commands
+
+POSTs them to /run or /edit_file
+
+Prints and logs the response via journalctl
+
+All shell commands, code file edits, and memory operations are now automated.
+
+🧠 The system is a full closed-loop architecture:
+
+ChatGPT emits tags
+
+Forwarding Tool handles tag parsing
+
+Flask backend performs real actions (edit, run, memory store)
+
+Results flow back automatically
+
+📂 Example prompt added:
+
+json
+Copy
+Edit
+{"prompt": "[[EDIT_FILE]]{\"path\": \"/home/rc_bot_workspace/scripts/dummy.txt\", \"instruction\": \"prepend: # Client Guy was here\"}"}
+👀 All actions are logged via:
+
+bash
+Copy
+Edit
+journalctl -u orchestrator-client.service -n 20 --no-pager
+✅ System tested end-to-end with real edits and shell executions.
+
+💾 Additional System Notes (Infra/Housekeeping)
+🔹 project_memory.db is owned by rcbotuser, swap is disabled but /swapfile left in place (commented in /etc/fstab) in case future model memory demand returns.
+
+🔹 No pinned RAM or /dev/shm overhead from LLaMA remains.
+🔹 Flask and Client services are systemd-enabled and persist through droplet restarts.
+
+
+
+
+# RC Score Engine Weights
+The RC Scanner's metric definitions and weights are stored in:
+  /home/rcbotuser/rc_bot_workspace/RC_Project_Files/rc_score_weights.json
+
+This file defines the 0–100 point structure for scoring tickers using 8 weighted inputs:
+gap %, premarket volume, float, catalyst, RVOL, price range, float rotation, and chart shape.
+This path is accessed by all scanner and backtest modules.
+
+🔧 May 25, 2025 – LangGraph + WebSocket Integration Update
+✅ Summary of Enhancements (Phase 8C)
+We enabled real-time LangGraph-style command execution via WebSocket using Socket.IO, Flask, and regex-tag parsing. This establishes the foundation for autonomous agent control via live chat (CLI or GUI).
+
+📦 Files Updated
+app.py (Version: 2.1.0)
+
+WebSocket handler @socketio.on('send_message') now parses:
+
+<edit_file path="...">code</edit_file>
+
+<execute>command</execute>
+
+Triggers real edit_file() and run_shell_command() calls
+
+Emits structured Socket.IO events: file_edit_result, execution_result
+
+Uses memory_manager.log_conversation_intelligently() to track edits
+
+Flask debug mode and use_reloader disabled for production startup
+
+⚙️ Service Fixes
+rcbot-api.service was updated:
+
+Ensured FLASK_ENV=production and PYTHONUNBUFFERED=1
+
+Verified ExecStart=/usr/bin/python3 /home/rc_bot_workspace/ai_orchestrator/app.py
+
+Restarted cleanly via systemctl with no Debugger or Restarting with stat artifacts
+
+🧪 Validation Performed
+Ran test WebSocket client: test_websocket_client.py
+
+Sent command:
+
+xml
+Copy
+Edit
+<edit_file path="/home/rc_bot_workspace/scripts/hello_world.py"># 🧠 Added by LangGraph</edit_file>
+Received:
+
+ai_response
+
+✅ file_edit_result: success
+
+Confirmed on-disk file write and memory DB logging
+
+🧠 Outcome
+RC-BOT is now fully capable of:
+
+Parsing and executing LangGraph-tagged WebSocket commands
+
+Autonomously editing files or executing code
+
+Emitting live response messages over Socket.IO
+
+Operating in a production-ready Flask + systemd environment
+
+
+🔒 Manual Launch Protection (Version 2.3.0) – May 25, 2025
+✅ Purpose
+Prevent accidental or conflicting manual launches of app.py, which previously caused port 5000 conflicts and crashed the rcbot-api.service.
+
+🔧 Key Updates
+🔹 app.py
+Version bumped to 2.3.0
+
+Added early-exit check at the top:
+
+python
+Copy
+Edit
+if os.getenv("RCBOT_FORCE_SYSTEMD") != "1":
+    print("❌ Please run this via systemd. Exiting.")
+    exit(1)
+Ensures app.py only runs under systemd, unless explicitly overridden
+
+🔹 rcbot-api.service (Systemd Unit)
+Added environment safeguard:
+
+ini
+Copy
+Edit
+Environment=RCBOT_FORCE_SYSTEMD=1
+This bypasses the manual-run block and allows systemd to launch app.py normally
+
+🛡️ Result
+Prevents future port binding errors on 5000
+
+Ensures consistent runtime environment
+
+Reduces risk of duplicate WebSocket servers
+
+🔧 Major Refactors Completed
+Split architecture into:
+
+app_core.py → defines Flask + Socket.IO and all WebSocket handlers
+
+routes.py → holds all Flask REST API routes (/run, /edit_file, /run_agent, /oauth/callback)
+
+app.py → safe launcher that registers everything via app_core and routes
+
+Rebuilt Socket.IO handler to support:
+
+<edit_file> → edits files via WebSocket
+
+<execute> → runs shell commands
+
+<agent> → executes LangGraph agent goals and emits agent_result
+
+Memory logging for all above actions
+
+Patched CORS and handshake issues
+
+Backend now emits connected event with session_id
+
+GUI shows ✅ Connected and correct session
+
+Tested connectivity
+
+curl to localhost:5000/socket.io/?EIO=4&transport=polling returns valid SID
+
+GUI connects and displays session ID
+
+✅ Latest Functions Built – May 25 (LangGraph + Memory Layer)
+🔹 log_context(session_id, key, value)
+Location: memory_manager.py
+Purpose: Saves context key-value pairs into project_memory.db
+Used By: LangGraph agent for persistent memory logging
+Schema:
+
+sql
+Copy
+Edit
+CREATE TABLE project_context (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT,
+    context_key TEXT,
+    context_value TEXT,
+    timestamp TEXT
+);
+🔹 /memory/context/<session_id>
+Location: routes.py
+Method: POST
+Payload: JSON { key: value }
+Behavior: Stores all keys into project_context table using log_context
+Returns: JSON {"status": "success", "message": ...}
+Used By: LangGraph agents, external tools, or future memory loaders
+
+🔹 build_langgraph_agent()
+Location: langgraph_agent.py
+Purpose: Constructs a minimal LangGraph StateGraph using:
+
+edit_file → prepends lines
+
+run → executes shell commands
+
+memory_update → stores values via Flask
+
+Routing logic:
+
+"edit" → triggers file edit
+
+"run" → executes shell
+
+default → saves memory context
+
+🔹 WebSocket <agent> handler
+Location: app_core.py → handle_send_message()
+Pattern: <agent>Refactor gap scanner</agent>
+Behavior:
+
+Parses XML
+
+Invokes build_langgraph_agent()
+
+Emits agent_result to client
+
+Logs via memory_manager.log_conversation_intelligently()
